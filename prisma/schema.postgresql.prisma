@@ -1,0 +1,76 @@
+// PostgreSQL Prisma schema for Haile Borito & Ertib (Production / Local PostgreSQL)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model MenuItem {
+  id          String      @id @default(cuid())
+  name        String
+  nameAmharic String
+  description String
+  price       Float
+  category    String      // "Borito", "Ertib", "Classics", "Hot Drinks"
+  imageUrl    String
+  isAvailable Boolean     @default(true)
+  orderItems  OrderItem[]
+  createdAt   DateTime    @default(now())
+}
+
+model Customer {
+  id          String   @id @default(cuid())
+  name        String
+  phone       String   @unique
+  totalOrders Int      @default(0)
+  totalSpent  Float    @default(0)
+  orders      Order[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Order {
+  id              String      @id @default(cuid())
+  orderNumber     String      @unique
+  customerId      String?
+  customer        Customer?   @relation(fields: [customerId], references: [id])
+  customerName    String
+  customerPhone   String
+  orderType       String      @default("PICKUP") // PICKUP, DELIVERY, DINE_IN
+  deliveryAddress String?
+  notes           String?
+  totalAmount     Float
+  status          String      @default("PENDING") // PENDING, PREPARING, READY, COMPLETED, CANCELLED
+  items           OrderItem[]
+  smsLogs         SmsLog[]
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+}
+
+model OrderItem {
+  id         String    @id @default(cuid())
+  orderId    String
+  order      Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId String?
+  menuItem   MenuItem? @relation(fields: [menuItemId], references: [id])
+  itemName   String
+  quantity   Int
+  unitPrice  Float
+  totalPrice Float
+}
+
+model SmsLog {
+  id           String   @id @default(cuid())
+  recipient    String
+  message      String
+  status       String   // "DELIVERED", "SENT_SIMULATED", "FAILED"
+  triggerType  String   // "ORDER_CONFIRMATION", "ORDER_READY", "BROADCAST", "MANUAL"
+  orderId      String?
+  order        Order?   @relation(fields: [orderId], references: [id])
+  responseData String?
+  createdAt    DateTime @default(now())
+}
