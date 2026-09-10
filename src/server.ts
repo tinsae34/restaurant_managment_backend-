@@ -139,6 +139,9 @@ app.post('/api/orders', async (req: Request, res: Response) => {
       },
     });
 
+    const paymentMethod = req.body.paymentMethod || 'CASH';
+    const isPaid = req.body.isPaid ?? (paymentMethod !== 'CASH'); // Digital payments often marked paid
+
     // Create order with items
     const order = await prisma.order.create({
       data: {
@@ -151,6 +154,8 @@ app.post('/api/orders', async (req: Request, res: Response) => {
         notes: notes || null,
         totalAmount: calculatedTotal,
         status: 'PENDING',
+        paymentMethod,
+        isPaid,
         items: {
           create: orderItemsData,
         },
@@ -162,7 +167,7 @@ app.post('/api/orders', async (req: Request, res: Response) => {
 
     // Automatically trigger AfroMessage Confirmation SMS
     const itemsSummary = order.items.map((i) => `${i.quantity}x ${i.itemName}`).join(', ');
-    const smsMessage = `Selam ${customerName}! Your order #${orderNumber} (${itemsSummary}) at Haile Borito & Ertib has been received and is being prepared. Total: ${calculatedTotal} ETB. Delivery/Type: ${orderType}. Ameseginalen!`;
+    const smsMessage = `Selam ${customerName}! Your order #${orderNumber} (${itemsSummary}) at Haile Borito & Ertib has been received and is being prepared. Total: ${calculatedTotal} ETB (${paymentMethod}). Delivery/Type: ${orderType}. Ameseginalen!`;
 
     const smsResult = await sendSms({
       to: normalizedPhone,
@@ -242,6 +247,45 @@ app.patch('/api/orders/:id/status', async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('Error updating order status:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Update order payment method and paid status
+app.patch('/api/orders/:id/payment', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { paymentMethod, isPaid } = req.body;
+
+    const dataToUpdate: any = {};
+    if (paymentMethod !== undefined) {
+      const validMethods = ['CASH', 'TELEBIRR', 'CBE_BIRR', 'CARD'];
+      if (!validMethods.includes(paymentMethod.toUpperCase())) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid payment method. Valid values: ${validMethods.join(', ')}`,
+        });
+      }
+      dataToUpdate.paymentMethod = paymentMethod.toUpperCase();
+    }
+
+    if (isPaid !== undefined) {
+      dataToUpdate.isPaid = Boolean(isPaid);
+    }
+
+    const updatedOrder = await prisma.order.update({
+      where: { id },
+      data: dataToUpdate,
+      include: { items: true },
+    });
+
+    res.json({
+      success: true,
+      message: 'Order payment details updated',
+      data: updatedOrder,
+    });
+  } catch (error: any) {
+    console.error('Error updating order payment:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
