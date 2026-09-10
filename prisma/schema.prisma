@@ -45,6 +45,8 @@ model Order {
   notes           String?
   totalAmount     Float
   status          String      @default("PENDING") // PENDING, PREPARING, READY, COMPLETED, CANCELLED
+  paymentMethod   String      @default("CASH") // CASH, TELEBIRR, CBE_BIRR, CARD
+  isPaid          Boolean     @default(false)
   items           OrderItem[]
   smsLogs         SmsLog[]
   createdAt       DateTime    @default(now())
@@ -73,4 +75,30 @@ model SmsLog {
   order        Order?   @relation(fields: [orderId], references: [id])
   responseData String?
   createdAt    DateTime @default(now())
+}
+
+model Expense {
+  id            String   @id @default(cuid())
+  title         String
+  amount        Float
+  category      String   // MEAT_KIBE, INJERA_BAKERY, VEGETABLES_SPICES, DRINKS_SUPPLIES, PACKAGING, STAFF_WAGES, UTILITIES_ENERGY, RENT_MAINTENANCE, OTHER
+  paymentMethod String   @default("CASH") // CASH, TELEBIRR, CBE_BIRR, BANK_TRANSFER
+  notes         String?
+  paidTo        String?
+  date          DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model DailyCashRegister {
+  id                String   @id @default(cuid())
+  date              String   @unique // Format: YYYY-MM-DD
+  startingCash      Float    @default(0) // Morning cash float/change
+  manualCashIn      Float    @default(0) // Extra cash added into drawer
+  manualCashOut     Float    @default(0) // Cash withdrawn from drawer
+  actualCountedCash Float?   // End-of-day physical cash count
+  notes             String?
+  isClosed          Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }

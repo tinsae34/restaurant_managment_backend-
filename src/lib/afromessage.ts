@@ -24,9 +24,9 @@ export async function sendSms({
   orderId,
 }: SendSmsParams): Promise<SmsResult> {
   const normalizedPhone = normalizeEthiopianPhone(to);
-  const token = process.env.AFROMESSAGE_API_TOKEN;
-  const identifier = process.env.AFROMESSAGE_IDENTIFIER || 'HaileBorito';
-  const senderName = process.env.AFROMESSAGE_SENDER_NAME || 'HaileFood';
+  const token = process.env.AFROMESSAGE_API_TOKEN || 'eyJhbGciOiJIUzI1NiJ9.eyJpZGVudGlmaWVyIjoiU2xKaEVpdFNLNzFlaG9UcnY5WEFCY0NSSk5ieklvcmwiLCJleHAiOjE5MDkyNDkwMDYsImlhdCI6MTc1MTQ4MjYwNiwianRpIjoiNjNkMDhlMjAtYjJiZC00NTFhLWJmZTItZjllOTY1NGM0ZDFjIn0.tZdEa1p19HZ9q_WuhSI9tDDeeKlHlOvDqgT5rl1S39o';
+  const identifier = process.env.AFROMESSAGE_IDENTIFIER || 'e80ad9d8-adf3-463f-80f4-7c4b39f7f164';
+  const senderName = process.env.AFROMESSAGE_SENDER_NAME || 'Tolo ET';
 
   // Check if token is present and not default placeholder
   const isLiveConfig = Boolean(
@@ -41,7 +41,7 @@ export async function sendSms({
   if (!isLiveConfig) {
     // Simulated delivery for testing/development
     console.log(`[AfroMessage MOCK] Body: "${message}"`);
-    
+
     // Save to DB
     const log = await prisma.smsLog.create({
       data: {
@@ -69,12 +69,20 @@ export async function sendSms({
 
   // Live AfroMessage API Call
   try {
-    const payload = {
-      from: identifier,
-      sender: senderName,
-      to: normalizedPhone,
+    const formattedPhone = normalizedPhone.startsWith('+') ? normalizedPhone : `+${normalizedPhone}`;
+
+    const payload: Record<string, any> = {
+      to: formattedPhone,
       message: message,
     };
+
+    // Only include identifier and sender if explicitly set and non-empty
+    if (identifier && identifier.trim() !== '') {
+      payload.from = identifier.trim();
+    }
+    if (senderName && senderName.trim() !== '') {
+      payload.sender = senderName.trim();
+    }
 
     const response = await fetch('https://api.afromessage.com/api/send', {
       method: 'POST',
@@ -86,11 +94,13 @@ export async function sendSms({
     });
 
     const responseData = await response.json().catch(() => ({ status: response.statusText }));
+    const isSuccess = response.ok && responseData?.acknowledge === 'success';
 
-    if (response.ok) {
+    if (isSuccess) {
+      console.log(`[AfroMessage Success] Sent to ${formattedPhone}. Message ID: ${responseData?.response?.message_id || 'N/A'}`);
       await prisma.smsLog.create({
         data: {
-          recipient: normalizedPhone,
+          recipient: formattedPhone,
           message,
           status: 'DELIVERED',
           triggerType,
@@ -102,15 +112,23 @@ export async function sendSms({
       return {
         success: true,
         status: 'DELIVERED',
-        recipient: normalizedPhone,
+        recipient: formattedPhone,
         simulated: false,
         responseData,
       };
     } else {
-      console.error('[AfroMessage API Error]', responseData);
+      const errorMsg =
+        (Array.isArray(responseData?.response?.errors) ? responseData.response.errors.join('; ') : null) ||
+        responseData?.response?.errors ||
+        responseData?.message ||
+        responseData?.error ||
+        `AfroMessage returned status: ${response.status} ${response.statusText}`;
+
+      console.error(`[AfroMessage Error] Failed to send to ${formattedPhone}: ${errorMsg}`, responseData);
+
       await prisma.smsLog.create({
         data: {
-          recipient: normalizedPhone,
+          recipient: formattedPhone,
           message,
           status: 'FAILED',
           triggerType,
@@ -122,17 +140,18 @@ export async function sendSms({
       return {
         success: false,
         status: 'FAILED',
-        recipient: normalizedPhone,
+        recipient: formattedPhone,
         simulated: false,
         responseData,
-        error: responseData?.message || 'AfroMessage API error',
+        error: errorMsg,
       };
     }
   } catch (err: any) {
     console.error('[AfroMessage Network Error]', err);
+    const formattedPhone = normalizedPhone.startsWith('+') ? normalizedPhone : `+${normalizedPhone}`;
     await prisma.smsLog.create({
       data: {
-        recipient: normalizedPhone,
+        recipient: formattedPhone,
         message,
         status: 'FAILED',
         triggerType,
@@ -144,7 +163,7 @@ export async function sendSms({
     return {
       success: false,
       status: 'FAILED',
-      recipient: normalizedPhone,
+      recipient: formattedPhone,
       simulated: false,
       error: err.message,
     };
@@ -228,12 +247,20 @@ export async function getAfroMessageAccountStatus() {
 
     if (res.ok) {
       const data = await res.json();
+      const rawBalance = data?.response?.balance;
+      const estimatedMessages = data?.response?.estimatedMessages;
+      const balanceDisplay = rawBalance !== undefined
+        ? `${Number(rawBalance).toFixed(2)} ETB (${estimatedMessages ?? 'N/A'} SMS left)`
+        : (data?.acknowledge === 'success' ? 'Active' : 'Unavailable');
+
       return {
         mode: 'LIVE',
-        connected: true,
-        balance: data?.balance ?? 'Active',
-        sender: process.env.AFROMESSAGE_SENDER_NAME,
-        identifier: process.env.AFROMESSAGE_IDENTIFIER,
+        connected: data?.acknowledge === 'success',
+        balance: balanceDisplay,
+        rawBalance,
+        estimatedMessages,
+        sender: process.env.AFROMESSAGE_SENDER_NAME || 'Default',
+        identifier: process.env.AFROMESSAGE_IDENTIFIER || 'Default',
         data,
       };
     } else {
